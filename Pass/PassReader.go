@@ -1,10 +1,12 @@
 package Pass
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,7 +82,36 @@ func readSecretData(fileNames *[]string) *[]fileDataMap {
 
 	return &secretData
 }
-
+func readSecretDataWithPass(fileNames *[]string) *[]fileDataMap {
+	var secretData []fileDataMap = make([]fileDataMap, 0)
+	for _, fPath := range *fileNames {
+		pName := adjustFileName(fPath)
+		var output bytes.Buffer
+		// var cmd exec.Cmd
+		passExe, err := exec.LookPath("pass")
+		if err != nil {
+			log.Fatalf("no pass executable %s", err)
+		}
+		cmd := *exec.Command(passExe, pName)
+		// cmd.Path = passExe
+		// cmd.Args = []string{pName}
+		cmd.Stdout = &output
+		if err = cmd.Run(); err != nil {
+			log.Fatalln(err)
+		}
+		data, err := ioutil.ReadAll(&output)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		secretData = append(secretData, fileDataMap{fileName: fPath, data: &data})
+	}
+	return &secretData
+}
+func adjustFileName(path string) string {
+	chunks := strings.Split(path, ".password-store")
+	passName := strings.TrimSuffix(chunks[1], ".gpg")
+	return passName
+}
 func getPassFiles(passPrefix string) (*[]string, error) {
 	//Get list of pass files starting from prefix directory
 	passHomeRef := checkGnuPass(getUserDir())
@@ -148,14 +179,31 @@ func parseSecretData(data *[]fileDataMap, creds *GpgCredentilas) ([]*PassRecord,
 	return pra, nil
 }
 
+func parseDecryptedData(data *[]fileDataMap, _ *GpgCredentilas) ([]*PassRecord, error) {
+	var pra []*PassRecord = make([]*PassRecord, len(*data))
+	for i := range *data {
+		var fdm fileDataMap = (*data)[i]
+		decData := string(*fdm.data)
+		passRecord, err := Parse(&decData, parseLocation(fdm.fileName))
+		if err != nil {
+			log.Printf("Cannot parse decrypted data. Details: %s", err)
+			return pra, err
+		}
+		pra[i] = passRecord
+	}
+	return pra, nil
+}
+
 func GetPassRecords(prefix string, creds *GpgCredentilas) ([]*PassRecord, error) {
 	pf, err := getPassFiles(prefix)
 	if err != nil {
 		log.Printf("Was not able to get password files %v", err)
 		return nil, err
 	}
-	dataMap := readSecretData(pf)
-	decData, err := parseSecretData(dataMap, creds)
+	// dataMap := readSecretData(pf)
+	dataMap := readSecretDataWithPass(pf)
+
+	decData, err := parseDecryptedData(dataMap, creds)
 	if err != nil {
 		log.Printf("Was not able to decrypt password files. %v", err)
 		return nil, err

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/maskimko/pass-backup/Pass"
 	"github.com/maskimko/pass-backup/PasswordSafe"
+
+	"encoding/csv"
 
 	"github.com/howeyc/gopass"
 	"github.com/pborman/getopt"
@@ -90,7 +93,14 @@ func main() {
 	base64 = base64 || *optBase64
 
 	var d *dumper = getDumper(&output, 512)
+	outf, err := os.Create(output)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	outWriter := csv.NewWriter(outf)
 
+	// csvTitle := csvTabTitle()
+	// d.WriteString(&csvTitle)
 	var creds *Pass.GpgCredentilas = &Pass.GpgCredentilas{EmailId: gpgId, Passphrase: password}
 	precs, err := Pass.GetPassRecords(prefix, creds)
 	if err != nil {
@@ -98,8 +108,11 @@ func main() {
 	} else {
 		//log.Println("Pass records")
 		for i := range precs {
-			var formattedString string = fmt.Sprintf("Pass record:\n\t%v\n", *precs[i])
-			d.WriteString(&formattedString)
+			// var formattedString string = fmt.Sprintf("Pass record:\n\t%v\n", *precs[i])
+			// formattedString := csvTabFormat(precs[i])
+			// d.WriteString(&formattedString)
+			outWriter.Write([]string{strings.Join(precs[i].Path, "/"), precs[i].Path[len(precs[i].Path)-1],
+				precs[i].Login, precs[i].Password, precs[i].Url, precs[i].Description + "\n" + precs[i].Notes})
 		}
 	}
 
@@ -133,11 +146,21 @@ func main() {
 		}
 	}
 
-	n, err := d.Flush()
-	if err != nil {
-		log.Println("Could not write data", err)
-	} else {
-		log.Printf("\nWrote %d bytes of data to %s", n, d.Destination)
-	}
+	// n, err := d.Flush()
+	outWriter.Flush()
+	// if err != nil {
+	// 	log.Println("Could not write data", err)
+	// } else {
+	// 	log.Printf("\nWrote %d bytes of data to %s", n, d.Destination)
+	// }
 	log.Println("End of program")
+}
+
+func csvTabTitle() string {
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", "Login", "Password", "Url", "Email", "Notes", "Description", "Version")
+}
+func csvTabFormat(pr *Pass.PassRecord) string {
+	out := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%d", pr.Login, pr.Password,
+		pr.Url, pr.Email, strings.ReplaceAll(pr.Notes, "\n", "\\n"), strings.ReplaceAll(pr.Notes, "\n", "\\n"), pr.Version)
+	return out
 }
